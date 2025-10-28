@@ -10,7 +10,7 @@ import { ConfirmationPage } from './pages/ConfirmationPage';
 type Page = 'home' | 'services' | 'booking' | 'admin' | 'settings' | 'confirmation';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('home');
+  const [currentPage, setCurrentPage] = useState<Page>('admin');
   const [selectedServiceId, setSelectedServiceId] = useState<string | undefined>();
   const [bookingConfirmation, setBookingConfirmation] = useState<any>(null);
 

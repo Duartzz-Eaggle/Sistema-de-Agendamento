@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, User, Phone, RefreshCw, Settings, LogOut, Filter, Scissors } from 'lucide-react';
+import { Calendar, Clock, User, Phone, RefreshCw, Settings, LogOut, Filter, Scissors, MessageSquare, CheckCircle, XCircle, Send } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Appointment } from '../types';
+import { Appointment, WhatsAppLog } from '../types';
 import { PasswordProtection } from '../components/PasswordProtection';
 import { formatPhoneNumber } from '../utils/whatsappUtils';
 
@@ -12,14 +12,21 @@ interface AdminPageProps {
 export function AdminPage({ onNavigate }: AdminPageProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [whatsappLogs, setWhatsappLogs] = useState<WhatsAppLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed' | 'cancelled'>('all');
+  const [activeTab, setActiveTab] = useState<'appointments' | 'whatsapp'>('appointments');
+  const [selectedAppointmentLogs, setSelectedAppointmentLogs] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
       loadAppointments();
+      loadWhatsAppLogs();
 
-      const interval = setInterval(loadAppointments, 30000);
+      const interval = setInterval(() => {
+        loadAppointments();
+        loadWhatsAppLogs();
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, [isAuthenticated, filter]);
@@ -50,6 +57,48 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     }
   }
 
+  async function loadWhatsAppLogs() {
+    try {
+      const { data, error } = await supabase
+        .from('whatsapp_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+      setWhatsappLogs(data || []);
+    } catch (error) {
+      console.error('Error loading WhatsApp logs:', error);
+    }
+  }
+
+  async function triggerReminders() {
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cron-send-reminders`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert(`${result.message}\nVerificado em: ${new Date(result.checkedAt).toLocaleString('pt-BR')}`);
+        loadWhatsAppLogs();
+      } else {
+        alert(`Erro: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error triggering reminders:', error);
+      alert('Erro ao disparar lembretes');
+    }
+  }
+
   async function updateAppointmentStatus(id: string, status: 'confirmed' | 'cancelled') {
     try {
       const { error } = await supabase
@@ -74,7 +123,7 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     return <PasswordProtection onAuthenticated={() => setIsAuthenticated(true)} />;
   }
 
-  const statusColors = {
+  const appointmentStatusColors = {
     pending: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400',
     confirmed: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
     cancelled: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400'
@@ -92,6 +141,27 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     pending: appointments.filter(a => a.status === 'pending').length,
     confirmed: appointments.filter(a => a.status === 'confirmed').length,
     cancelled: appointments.filter(a => a.status === 'cancelled').length
+  };
+
+  const whatsappStats = {
+    total: whatsappLogs.length,
+    sent: whatsappLogs.filter(l => l.status === 'sent').length,
+    failed: whatsappLogs.filter(l => l.status === 'failed').length,
+    pending: whatsappLogs.filter(l => l.status === 'pending').length,
+  };
+
+  const messageTypeLabels = {
+    confirmation: 'Confirmação',
+    reminder: 'Lembrete',
+    cancellation_success: 'Cancelamento OK',
+    cancellation_error: 'Cancelamento Erro'
+  };
+
+  const statusColors = {
+    pending: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400',
+    sent: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+    failed: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400',
+    delivered: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
   };
 
   return (
@@ -180,36 +250,71 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
 
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-              Agendamentos
-            </h2>
-
-            <div className="flex items-center space-x-2">
-              <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value as any)}
-                className="px-3 py-2 bg-gray-100 dark:bg-gray-700 border-0 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+            <div className="flex space-x-4">
+              <button
+                onClick={() => setActiveTab('appointments')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'appointments'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
               >
-                <option value="all">Todos</option>
-                <option value="pending">Pendentes</option>
-                <option value="confirmed">Confirmados</option>
-                <option value="cancelled">Cancelados</option>
-              </select>
+                <Calendar className="w-4 h-4 inline mr-2" />
+                Agendamentos
+              </button>
+              <button
+                onClick={() => setActiveTab('whatsapp')}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  activeTab === 'whatsapp'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4 inline mr-2" />
+                WhatsApp Logs
+              </button>
             </div>
+
+            {activeTab === 'appointments' && (
+              <div className="flex items-center space-x-2">
+                <Filter className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value as any)}
+                  className="px-3 py-2 bg-gray-100 dark:bg-gray-700 border-0 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">Todos</option>
+                  <option value="pending">Pendentes</option>
+                  <option value="confirmed">Confirmados</option>
+                  <option value="cancelled">Cancelados</option>
+                </select>
+              </div>
+            )}
+
+            {activeTab === 'whatsapp' && (
+              <button
+                onClick={triggerReminders}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+              >
+                <Send className="w-4 h-4" />
+                <span>Enviar Lembretes</span>
+              </button>
+            )}
           </div>
 
-          {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-              <p className="mt-4 text-gray-600 dark:text-gray-400">Carregando agendamentos...</p>
-            </div>
-          ) : filteredAppointments.length === 0 ? (
-            <div className="text-center py-12">
-              <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-600 dark:text-gray-400">Nenhum agendamento encontrado</p>
-            </div>
-          ) : (
+          {activeTab === 'appointments' && (
+            <>
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  <p className="mt-4 text-gray-600 dark:text-gray-400">Carregando agendamentos...</p>
+                </div>
+              ) : filteredAppointments.length === 0 ? (
+                <div className="text-center py-12">
+                  <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-400">Nenhum agendamento encontrado</p>
+                </div>
+              ) : (
             <div className="space-y-4">
               {filteredAppointments.map((appointment) => (
                 <div
@@ -232,7 +337,7 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
                             </p>
                           </div>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[appointment.status]}`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${appointmentStatusColors[appointment.status]}`}>
                           {statusLabels[appointment.status]}
                         </span>
                       </div>
@@ -277,6 +382,94 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
                 </div>
               ))}
             </div>
+              )}
+            </>
+          )}
+
+          {activeTab === 'whatsapp' && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Total</span>
+                    <MessageSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">{whatsappStats.total}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Enviadas</span>
+                    <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-2">{whatsappStats.sent}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Falhadas</span>
+                    <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                  </div>
+                  <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-2">{whatsappStats.failed}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Pendentes</span>
+                    <Clock className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                  </div>
+                  <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-2">{whatsappStats.pending}</p>
+                </div>
+              </div>
+
+              {whatsappLogs.length === 0 ? (
+                <div className="text-center py-12">
+                  <MessageSquare className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600 dark:text-gray-400">Nenhum log de WhatsApp encontrado</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {whatsappLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${statusColors[log.status]}`}>
+                            {log.status === 'sent' ? 'Enviada' : log.status === 'failed' ? 'Falhou' : log.status === 'pending' ? 'Pendente' : 'Entregue'}
+                          </span>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                            {messageTypeLabels[log.message_type]}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(log.created_at).toLocaleString('pt-BR')}
+                        </span>
+                      </div>
+
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        <Phone className="w-3 h-3 inline mr-1" />
+                        {formatPhoneNumber(log.recipient_number)}
+                      </div>
+
+                      <div className="bg-gray-50 dark:bg-gray-700/50 rounded p-3 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                        {log.message_content}
+                      </div>
+
+                      {log.error_message && (
+                        <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                          Erro: {log.error_message}
+                        </div>
+                      )}
+
+                      {log.sent_at && (
+                        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                          Enviado em: {new Date(log.sent_at).toLocaleString('pt-BR')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

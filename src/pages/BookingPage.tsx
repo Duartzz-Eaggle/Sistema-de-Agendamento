@@ -123,15 +123,34 @@ export function BookingPage({ onNavigate, selectedServiceId }: BookingPageProps)
 
       if (error) throw error;
 
-      const whatsappLink = generateWhatsAppLink(
-        settings?.whatsapp_number || '',
-        customerName,
-        formatDate(selectedDate),
-        selectedTime
-      );
+      try {
+        const confirmationResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-whatsapp-confirmation`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({
+              appointmentId: data.id,
+              customerName: customerName,
+              customerWhatsapp: customerWhatsapp,
+              appointmentDate: formatDate(selectedDate),
+              appointmentTime: selectedTime,
+              serviceName: selectedService.name,
+              servicePrice: selectedService.price,
+            }),
+          }
+        );
 
-      if (settings?.whatsapp_number) {
-        window.open(whatsappLink, '_blank');
+        const result = await confirmationResponse.json();
+
+        if (result.success && result.whatsappUrl) {
+          window.open(result.whatsappUrl, '_blank');
+        }
+      } catch (whatsappError) {
+        console.error('Error sending WhatsApp confirmation:', whatsappError);
       }
 
       onNavigate('confirmation', {

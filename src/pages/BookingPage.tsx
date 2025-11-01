@@ -24,6 +24,21 @@ export function BookingPage({ onNavigate, selectedServiceId }: BookingPageProps)
   const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState(1);
 
+
+  await fetch("http://localhost:5000/send-confirmation", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    phone: clienteTelefone,
+    nomeCliente,
+    data,
+    hora,
+    servico,
+    profissional,
+    valor,
+  }),
+});
+
   useEffect(() => {
     loadInitialData();
   }, []);
